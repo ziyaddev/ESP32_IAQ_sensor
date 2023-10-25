@@ -1,5 +1,3 @@
-creds.h
-
 # Prerequisites
 *.d
 
@@ -36,3 +34,6 @@ creds.h
 # Folders
 /.vscode
 /.pio
+
+# Files
+creds.h
