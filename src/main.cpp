@@ -34,9 +34,32 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if defined(ESP32)
+#include <WiFiMulti.h>
+WiFiMulti wifiMulti;
+#define DEVICE "ESP32"
+#elif defined(ESP8266)
+#include <ESP8266WiFiMulti.h>
+ESP8266WiFiMulti wifiMulti;
+#define DEVICE "ESP8266"
+#endif
+
+#include <InfluxDbClient.h>
+#include <InfluxDbCloud.h>
 #include <Arduino.h>
 #include <SensirionI2CSen5x.h>
 #include <Wire.h>
+#include "creds.h"
+
+// Time zone info
+#define TZ_INFO "UTC1"
+
+// Declare InfluxDB client instance with preconfigured InfluxCloud certificate
+InfluxDBClient client(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
+
+// Declare Data point
+Point netwrk("wifi_status");
+Point sensor("iaq_sensor");
 
 // The used commands use up to 48 bytes. On some Arduino's the default buffer
 // space is not large enough
@@ -128,11 +151,39 @@ void printSerialNumber()
 
 void setup()
 {
-
 	Serial.begin(115200);
 	while (!Serial)
 	{
 		delay(100);
+	}
+
+	// Setup wifi
+	WiFi.mode(WIFI_STA);
+	wifiMulti.addAP(WIFI_SSID_1, WIFI_PASSWORD_1);
+
+	Serial.print("Connecting to wifi");
+	while (wifiMulti.run() != WL_CONNECTED)
+	{
+		Serial.print(".");
+		delay(100);
+	}
+	Serial.println();
+
+	// Accurate time is necessary for certificate validation and writing in batches
+	// We use the NTP servers in your area as provided by: https://www.pool.ntp.org/zone/
+	// Syncing progress and the time will be printed to Serial.
+	timeSync(TZ_INFO, "pool.ntp.org", "time.nis.gov");
+
+	// Check server connection
+	if (client.validateConnection())
+	{
+		Serial.print("Connected to InfluxDB: ");
+		Serial.println(client.getServerUrl());
+	}
+	else
+	{
+		Serial.print("InfluxDB connection failed: ");
+		Serial.println(client.getLastErrorMessage());
 	}
 
 	Wire.begin();
@@ -196,6 +247,11 @@ void setup()
 		errorToString(error, errorMessage, 256);
 		Serial.println(errorMessage);
 	}
+
+	// Add tags to the data point
+	netwrk.addTag("device", DEVICE);
+	netwrk.addTag("SSID", WiFi.SSID());
+	sensor.addTag("Productname", "SEN55");
 }
 
 void loop()
@@ -279,5 +335,42 @@ void loop()
 		{
 			Serial.println(noxIndex);
 		}
+	}
+
+	// Clear fields for reusing the point. Tags will remain the same as set above.
+	netwrk.clearFields();
+	sensor.clearFields();
+
+	// Store measured value into point
+	// Report RSSI of currently connected network
+	netwrk.addField("rssi", WiFi.RSSI());
+	sensor.addField("PM1.0", massConcentrationPm1p0);
+	sensor.addField("PM2.5", massConcentrationPm2p5);
+	sensor.addField("PM4.0", massConcentrationPm4p0);
+	sensor.addField("PM10.0", massConcentrationPm10p0);
+	sensor.addField("Temperature", ambientTemperature);
+	sensor.addField("Humidity", ambientHumidity);
+	sensor.addField("VOC Index", vocIndex);
+	sensor.addField("NOX Index", noxIndex);
+
+	// Print what are we exactly writing
+	Serial.print("Writing : ");
+	Serial.println(sensor.toLineProtocol());
+	Serial.println(netwrk.toLineProtocol());
+
+	// Check WiFi connection and reconnect if needed
+	if (wifiMulti.run() != WL_CONNECTED)
+	{
+		Serial.println("Wifi connection lost");
+	}
+
+	// Write point
+	if (!client.writePoint(netwrk)) {
+		Serial.print("InfluxDB write failed: ");
+		Serial.println(client.getLastErrorMessage());
+	}
+	if (!client.writePoint(sensor)) {
+		Serial.print("InfluxDB write failed: ");
+		Serial.println(client.getLastErrorMessage());
 	}
 }
