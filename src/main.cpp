@@ -44,10 +44,11 @@ ESP8266WiFiMulti wifiMulti;
 #define DEVICE "ESP8266"
 #endif
 
+#include <Arduino.h>
 #include <InfluxDbClient.h>
 #include <InfluxDbCloud.h>
-#include <Arduino.h>
 #include <SensirionI2CSen5x.h>
+#include <SensirionI2CSfa3x.h>
 #include <Wire.h>
 #include "creds.h"
 
@@ -59,7 +60,8 @@ InfluxDBClient client(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKE
 
 // Declare Data point
 Point netwrk("wifi_status");
-Point sensor("iaq_sensor");
+Point sen55_sensor("iaq_sensor");
+Point sfa30_sensor("iaq_sensor");
 
 // The used commands use up to 48 bytes. On some Arduino's the default buffer
 // space is not large enough
@@ -73,21 +75,22 @@ Point sensor("iaq_sensor");
 #endif
 
 SensirionI2CSen5x sen5x;
+SensirionI2CSfa3x sfa3x;
 
 void printModuleVersions()
 {
-	uint16_t error;
+	uint16_t sen55_error;
 	char errorMessage[256];
 
 	unsigned char productName[32];
 	uint8_t productNameSize = 32;
 
-	error = sen5x.getProductName(productName, productNameSize);
+	sen55_error = sen5x.getProductName(productName, productNameSize);
 
-	if (error)
+	if (sen55_error)
 	{
 		Serial.print("Error trying to execute getProductName() : ");
-		errorToString(error, errorMessage, 256);
+		errorToString(sen55_error, errorMessage, 256);
 		Serial.println(errorMessage);
 	}
 	else
@@ -104,13 +107,13 @@ void printModuleVersions()
 	uint8_t protocolMajor;
 	uint8_t protocolMinor;
 
-	error = sen5x.getVersion(firmwareMajor, firmwareMinor, firmwareDebug,
+	sen55_error = sen5x.getVersion(firmwareMajor, firmwareMinor, firmwareDebug,
 							 hardwareMajor, hardwareMinor, protocolMajor,
 							 protocolMinor);
-	if (error)
+	if (sen55_error)
 	{
 		Serial.print("Error trying to execute getVersion() : ");
-		errorToString(error, errorMessage, 256);
+		errorToString(sen55_error, errorMessage, 256);
 		Serial.println(errorMessage);
 	}
 	else
@@ -130,16 +133,16 @@ void printModuleVersions()
 
 void printSerialNumber()
 {
-	uint16_t error;
+	uint16_t sen55_error;
 	char errorMessage[256];
 	unsigned char serialNumber[32];
 	uint8_t serialNumberSize = 32;
 
-	error = sen5x.getSerialNumber(serialNumber, serialNumberSize);
-	if (error)
+	sen55_error = sen5x.getSerialNumber(serialNumber, serialNumberSize);
+	if (sen55_error)
 	{
 		Serial.print("Error trying to execute getSerialNumber() : ");
-		errorToString(error, errorMessage, 256);
+		errorToString(sen55_error, errorMessage, 256);
 		Serial.println(errorMessage);
 	}
 	else
@@ -189,14 +192,17 @@ void setup()
 	Wire.begin();
 
 	sen5x.begin(Wire);
+    sfa3x.begin(Wire);
 
-	uint16_t error;
+	uint16_t sen55_error;
+    uint16_t sfa30_error;
+
 	char errorMessage[256];
-	error = sen5x.deviceReset();
-	if (error)
+	sen55_error = sen5x.deviceReset();
+	if (sen55_error)
 	{
 		Serial.print("Error trying to execute deviceReset() : ");
-		errorToString(error, errorMessage, 256);
+		errorToString(sen55_error, errorMessage, 256);
 		Serial.println(errorMessage);
 	}
 
@@ -225,11 +231,11 @@ void setup()
 	// Adjust tempOffset to account for additional temperature offsets
 	// exceeding the SEN module's self heating.
 	float tempOffset = 0.0;
-	error = sen5x.setTemperatureOffsetSimple(tempOffset);
-	if (error)
+	sen55_error = sen5x.setTemperatureOffsetSimple(tempOffset);
+	if (sen55_error)
 	{
 		Serial.print("Error trying to execute setTemperatureOffsetSimple() : ");
-		errorToString(error, errorMessage, 256);
+		errorToString(sen55_error, errorMessage, 256);
 		Serial.println(errorMessage);
 	}
 	else
@@ -239,29 +245,40 @@ void setup()
 		Serial.println(" deg. Celsius (SEN54/SEN55 only");
 	}
 
-	// Start Measurement
-	error = sen5x.startMeasurement();
-	if (error)
+	// Start SEN55 Measurement
+	sen55_error = sen5x.startMeasurement();
+	if (sen55_error)
 	{
 		Serial.print("Error trying to execute startMeasurement() : ");
-		errorToString(error, errorMessage, 256);
+		errorToString(sen55_error, errorMessage, 256);
 		Serial.println(errorMessage);
 	}
+
+    // Start SFA30 Measurement
+    sfa30_error = sfa3x.startContinuousMeasurement();
+    if (sfa30_error)
+    {
+        Serial.print("Error trying to execute startContinuousMeasurement(): ");
+        errorToString(sfa30_error, errorMessage, 256);
+        Serial.println(errorMessage);
+    }
 
 	// Add tags to the data point
 	netwrk.addTag("device", DEVICE);
 	netwrk.addTag("SSID", WiFi.SSID());
-	sensor.addTag("Productname", "SEN55");
+	sen55_sensor.addTag("Productname", "SEN55");
+	sfa30_sensor.addTag("Productname", "SFA30");
 }
 
 void loop()
 {
-	uint16_t error;
+	uint16_t sen55_error;
+	uint16_t sfa30_error;
 	char errorMessage[256];
 
 	delay(1000);
 
-	// Read Measurement
+	// Read Measurements
 	float massConcentrationPm1p0;
 	float massConcentrationPm2p5;
 	float massConcentrationPm4p0;
@@ -271,15 +288,19 @@ void loop()
 	float vocIndex;
 	float noxIndex;
 
-	error = sen5x.readMeasuredValues(
+    int16_t sfa30_hcho;
+    int16_t sfa30_humidity;
+    int16_t sfa30_temperature;
+
+	sen55_error = sen5x.readMeasuredValues(
 		massConcentrationPm1p0, massConcentrationPm2p5, massConcentrationPm4p0,
 		massConcentrationPm10p0, ambientHumidity, ambientTemperature, vocIndex,
 		noxIndex);
 
-	if (error)
+	if (sen55_error)
 	{
 		Serial.print("Error trying to execute readMeasuredValues() : ");
-		errorToString(error, errorMessage, 256);
+		errorToString(sen55_error, errorMessage, 256);
 		Serial.println(errorMessage);
 	}
 	else
@@ -337,26 +358,50 @@ void loop()
 		}
 	}
 
+    sfa30_error = sfa3x.readMeasuredValues(sfa30_hcho, sfa30_humidity, sfa30_temperature);
+    if (sfa30_error)
+    {
+        Serial.print("Error trying to execute readMeasuredValues(): ");
+        errorToString(sfa30_error, errorMessage, 256);
+        Serial.println(errorMessage);
+    }
+    else
+    {
+        Serial.print("Hcho:");
+        Serial.print(sfa30_hcho / 5.0);
+        Serial.print("\t");
+        Serial.print("Humidity:");
+        Serial.print(sfa30_humidity / 100.0);
+        Serial.print("\t");
+        Serial.print("Temperature:");
+        Serial.println(sfa30_temperature / 200.0);
+    }
+
 	// Clear fields for reusing the point. Tags will remain the same as set above.
 	netwrk.clearFields();
-	sensor.clearFields();
+	sen55_sensor.clearFields();
+	sfa30_sensor.clearFields();
 
 	// Store measured value into point
 	// Report RSSI of currently connected network
 	netwrk.addField("rssi", WiFi.RSSI());
-	sensor.addField("PM1.0", massConcentrationPm1p0);
-	sensor.addField("PM2.5", massConcentrationPm2p5);
-	sensor.addField("PM4.0", massConcentrationPm4p0);
-	sensor.addField("PM10.0", massConcentrationPm10p0);
-	sensor.addField("Temperature", ambientTemperature);
-	sensor.addField("Humidity", ambientHumidity);
-	sensor.addField("VOC Index", vocIndex);
-	sensor.addField("NOX Index", noxIndex);
+	sen55_sensor.addField("PM1.0", massConcentrationPm1p0);
+	sen55_sensor.addField("PM2.5", massConcentrationPm2p5);
+	sen55_sensor.addField("PM4.0", massConcentrationPm4p0);
+	sen55_sensor.addField("PM10.0", massConcentrationPm10p0);
+	sen55_sensor.addField("Temperature", ambientTemperature);
+	sen55_sensor.addField("Humidity", ambientHumidity);
+	sen55_sensor.addField("VOC Index", vocIndex);
+	sen55_sensor.addField("NOX Index", noxIndex);
+	sfa30_sensor.addField("H2CO Concentration", sfa30_hcho);
+	sfa30_sensor.addField("SFA30 Temperature", sfa30_temperature);
+	sfa30_sensor.addField("SFA30 Humidity", sfa30_humidity);
 
 	// Print what are we exactly writing
 	Serial.print("Writing : ");
-	Serial.println(sensor.toLineProtocol());
 	Serial.println(netwrk.toLineProtocol());
+	Serial.println(sen55_sensor.toLineProtocol());
+	Serial.println(sfa30_sensor.toLineProtocol());
 
 	// Check WiFi connection and reconnect if needed
 	if (wifiMulti.run() != WL_CONNECTED)
@@ -364,12 +409,16 @@ void loop()
 		Serial.println("Wifi connection lost");
 	}
 
-	// Write point
+	// Write points
 	if (!client.writePoint(netwrk)) {
 		Serial.print("InfluxDB write failed: ");
 		Serial.println(client.getLastErrorMessage());
 	}
-	if (!client.writePoint(sensor)) {
+	if (!client.writePoint(sen55_sensor)) {
+		Serial.print("InfluxDB write failed: ");
+		Serial.println(client.getLastErrorMessage());
+	}
+	if (!client.writePoint(sfa30_sensor)) {
 		Serial.print("InfluxDB write failed: ");
 		Serial.println(client.getLastErrorMessage());
 	}
