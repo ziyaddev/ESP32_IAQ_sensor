@@ -291,6 +291,9 @@ void loop()
     int16_t sfa30_hcho;
     int16_t sfa30_humidity;
     int16_t sfa30_temperature;
+    float fl_sfa30_hcho;
+    float fl_sfa30_humidity;
+    float fl_sfa30_temperature;
 
 	sen55_error = sen5x.readMeasuredValues(
 		massConcentrationPm1p0, massConcentrationPm2p5, massConcentrationPm4p0,
@@ -307,17 +310,13 @@ void loop()
 	{
 		Serial.print("MassConcentrationPm1p0 :");
 		Serial.print(massConcentrationPm1p0);
-		Serial.print("\t");
-		Serial.print("MassConcentrationPm2p5 :");
+		Serial.print("\tMassConcentrationPm2p5 :");
 		Serial.print(massConcentrationPm2p5);
-		Serial.print("\t");
-		Serial.print("MassConcentrationPm4p0 :");
+		Serial.print("\tMassConcentrationPm4p0 :");
 		Serial.print(massConcentrationPm4p0);
-		Serial.print("\t");
-		Serial.print("MassConcentrationPm10p0 :");
+		Serial.print("\tMassConcentrationPm10p0 :");
 		Serial.print(massConcentrationPm10p0);
-		Serial.print("\t");
-		Serial.print("AmbientHumidity :");
+		Serial.print("\tAmbientHumidity :");
 		if (isnan(ambientHumidity))
 		{
 			Serial.print("n/a");
@@ -326,8 +325,7 @@ void loop()
 		{
 			Serial.print(ambientHumidity);
 		}
-		Serial.print("\t");
-		Serial.print("AmbientTemperature :");
+		Serial.print("\tAmbientTemperature :");
 		if (isnan(ambientTemperature))
 		{
 			Serial.print("n/a");
@@ -336,8 +334,7 @@ void loop()
 		{
 			Serial.print(ambientTemperature);
 		}
-		Serial.print("\t");
-		Serial.print("VocIndex :");
+		Serial.print("\tVocIndex :");
 		if (isnan(vocIndex))
 		{
 			Serial.print("n/a");
@@ -346,8 +343,7 @@ void loop()
 		{
 			Serial.print(vocIndex);
 		}
-		Serial.print("\t");
-		Serial.print("NoxIndex :");
+		Serial.print("\tNoxIndex :");
 		if (isnan(noxIndex))
 		{
 			Serial.println("n/a");
@@ -367,14 +363,15 @@ void loop()
     }
     else
     {
-        Serial.print("Hcho:");
-        Serial.print(sfa30_hcho / 5.0);
-        Serial.print("\t");
-        Serial.print("Humidity:");
-        Serial.print(sfa30_humidity / 100.0);
-        Serial.print("\t");
-        Serial.print("Temperature:");
-        Serial.println(sfa30_temperature / 200.0);
+		fl_sfa30_hcho = sfa30_hcho / 5.0;
+		fl_sfa30_humidity = sfa30_humidity / 100.0;
+		fl_sfa30_temperature = sfa30_temperature / 200.0;
+		Serial.print("Hcho : ");
+        Serial.print(fl_sfa30_hcho);
+        Serial.print("\tHumidity : ");
+        Serial.print(fl_sfa30_humidity);
+        Serial.print("\tTemperature : ");
+        Serial.println(fl_sfa30_temperature);
     }
 
 	// Clear fields for reusing the point. Tags will remain the same as set above.
@@ -393,9 +390,9 @@ void loop()
 	sen55_sensor.addField("Humidity", ambientHumidity);
 	sen55_sensor.addField("VOC Index", vocIndex);
 	sen55_sensor.addField("NOX Index", noxIndex);
-	sfa30_sensor.addField("H2CO Concentration", sfa30_hcho);
-	sfa30_sensor.addField("SFA30 Temperature", sfa30_temperature);
-	sfa30_sensor.addField("SFA30 Humidity", sfa30_humidity);
+	sfa30_sensor.addField("HCHO Concentration", fl_sfa30_hcho);
+	sfa30_sensor.addField("Temperature", fl_sfa30_temperature);
+	sfa30_sensor.addField("Humidity", fl_sfa30_humidity);
 
 	// Print what are we exactly writing
 	Serial.print("Writing : ");
